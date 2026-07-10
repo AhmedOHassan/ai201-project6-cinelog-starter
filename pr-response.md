@@ -1,0 +1,76 @@
+# PR Response Doc — CineLog Watchlist Feature
+
+## AI Usage
+I used AI throughout this project in a few specific ways:
+
+- **Codebase orientation:** Before looking at the review comments, I had it read through `models.py`, `services/collection_service.py`, and `tests/test_collection.py` and summarize the naming conventions, the deduplication pattern in `add_to_collection()`, and the fixture structure used in the tests. This gave me the context I needed to actually understand what Comments 1–3 were asking for instead of guessing.
+
+- **Stress-testing Comments 4 and 5:** For both design decisions, I wrote my own position first, then asked what counterargument a careful reviewer would raise. For Comment 4 (default visibility), it pointed out that I was justifying `public=True` partly by assuming features like a friends system or a signup disclosure existed in the codebase, when they don't. I revised my reasoning to instead ground the public default in what's actually true today, rather than leaning on social features that haven't been built. For Comment 5 (sort order), it pointed out that my original argument didn't actually hold for small, actively-used watchlists, where seeing the newest addition first is arguably more useful, and that alphabetical isn't really a robust answer to "can I find it" once a list gets large either way. I narrowed my final argument to drop the list-size framing entirely and argue instead that alphabetical serves a watchlist's core purpose (lookup, "is this on my list") regardless of size, which is a claim the size-based counterargument doesn't touch.
+
+- **Rebase troubleshooting (Comment 6):** After running `git rebase origin/main`, the rebase reported success with no conflict markers, which was confusing since I expected an explicit conflict. I asked it to explain why, and it walked through the mechanics: since none of my commits touched `models.py`, git had nothing to diff there, so it silently took main's version wholesale, which had dropped the `WatchlistEntry` class entirely during the UUID refactor. That explanation is what let me recognize this as a real conflict, just one that wouldn't show up as `<<<<<<<` markers.
+
+- **Commit hygiene check:** After the interactive rebase, I reviewed the final `git log --oneline` output myself against the conventional commits spec described in `CONTRIBUTING.md` before taking the final screenshot.
+
+In all cases, the code changes, the actual wording of the Comment 4 and 5 responses, and the final commit messages are my own, AI was used for orientation, critique, and verification, not to generate the design decisions themselves.
+
+## Comment 1 — Rename
+**What I did:** Renamed `save_to_watchlist()` to `add_to_watchlist()` in `services/watchlist_service.py` so it matches the `verb_to_noun` convention already used by `add_to_collection()` in `services/collection_service.py`. Updated the docstring's first line to say "Add a film" instead of "Save a film" so it stays consistent with the new name. Updated the one call site in `routes/watchlist/watchlist.py`, both the import and the function call.
+**How I verified:** Searched the whole project for `save_to_watchlist` after the rename and got zero matches, so I know every call site was caught. Ran `pytest tests/ -v` and all 4 existing tests still pass, confirming the rename didn't break anything else.
+
+## Comment 2 — Deduplication
+**What I did:** Followed the same pattern `add_to_collection()` uses in `services/collection_service.py`: before creating the `WatchlistEntry`, I query for an existing entry with the same `user_id` and `film_id`, and if one exists I raise a new `AlreadyInWatchlistError` instead of silently inserting a duplicate. I also updated `routes/watchlist/watchlist.py` to catch this new error and return a 409, and to catch `FilmNotFoundError` and return a 404, matching how `routes/collection.py` handles the same two cases for the collection endpoint (this second part wasn't strictly asked for, but the watchlist route was letting both errors bubble up as unhandled 500s, which didn't match the rest of the app).
+**How I verified:** Started `tests/test_watchlist.py`, following the same fixture structure as `tests/test_collection.py`. Added `test_add_to_watchlist_creates_entry` for the happy path and `test_add_to_watchlist_duplicate_raises`, which adds the same film twice and asserts the second call raises `AlreadyInWatchlistError` while only one entry ends up in the database. Both pass. Also ran `pytest tests/ -v` to confirm the existing collection tests still pass unaffected.
+
+## Comment 3 — Missing test
+**What I did:** Added `test_add_to_watchlist_nonexistent_film_raises` to `tests/test_watchlist.py`, using `test_add_to_collection_nonexistent_film_raises` in `tests/test_collection.py` as the model.
+**How I verified:** Ran `pytest tests/test_watchlist.py -v` and confirmed the new test passes alongside the other two watchlist tests. Ran the full suite with `pytest tests/ -v` and all 7 tests pass (4 collection + 3 watchlist).
+
+## Comment 4 — Default visibility
+**My position:** I'm keeping `public=True` as the default, and I want to be clear that this is a deliberate choice, not something I inherited without thinking about it.
+
+**Reasoning:** A watchlist is different from a collection. A collection is a record of what someone has already watched, which feels more personal and retrospective. A watchlist is a list of what someone wants to watch, and I think that's naturally more outward facing. CineLog is a film tracking app, and in that genre of app, public activity by default is the norm, not the exception. Letterboxd, the app CineLog is clearly closest to in spirit, defaults diaries, reviews, and lists to public, and that's part of what makes the category work: people log and browse what others are watching as a normal part of using the app. I'm following that same convention here rather than treating CineLog as a private utility where sharing is the exception.
+
+**Tradeoff acknowledged:** The real cost of this default is that a user who doesn't think about privacy at all ends up exposing their watchlist without ever making that choice. That's a real risk, especially for someone who might not want people knowing they're planning to watch something they'd find embarrassing or that doesn't match how they present themselves publicly. I'll admit CineLog doesn't currently have anything in this codebase, like a signup notice or a friends system, that actively tells a user their watchlist is public or lets them do anything social with that visibility yet. So right now this default is really just matching the norm for the category of app CineLog is, not something the product is actively taking advantage of. I still think `public=True` is the right default to build toward that norm from, but I'd treat clearly communicating this default to users, and building the features that make public visibility actually useful, as follow-up work rather than something this PR needs to solve.
+
+## Comment 5 — Sort order
+**My position:** I'd like to keep `get_watchlist()` sorted alphabetically by film title rather than switching to date-added order.
+
+**Reasoning:** A watchlist is fundamentally different from a collection in what it's for. A collection is a timeline of things a user has actually watched, so recency is meaningful there, which is why `get_collection()` sorting newest-first makes sense as an activity feed. A watchlist's core job is different: it's a lookup list. The main question a user is trying to answer when they open it is "is this film I'm thinking about already on my list," not "what did I add most recently." That's true whether the list has 5 films or 50, since it's about the purpose of the list rather than its size. Alphabetical order directly serves that lookup question because it gives the list a stable, predictable structure the user can scan the same way every time, while date-added order is only useful if what you care about is your own recent activity, which isn't really what a watchlist is for.
+
+**Engagement with reviewer's point:** I understand the reasoning that most users want to see what they added recently, and I agree that's true for a collection, where recent activity is the point. But I think that assumption fits an activity feed more than it fits a watchlist. A watchlist's main job isn't to show recent activity, it's to answer "is this thing I want to watch on here, and can I find it," and that's a lookup problem, not a recency problem. I'd also point out that `date_added` is still returned on every entry in the response, so recency isn't lost information, a client that wants to show "recently added" can still do that with the data available. What a client can't easily do is reconstruct alphabetical order on its own without either the backend providing it or resorting the entire payload itself, so I think alphabetical is the more useful default to bake in at the API level.
+
+## Comment 6 — Rebase
+**What conflicted:** I ran `git fetch origin` then `git rebase origin/main`. The rebase reported success with no conflict markers, but that was misleading. None of my commits on `feature/watchlist` ever touch `models.py`, so git had nothing to diff there and just took main's version of the file wholesale. Main's UUID refactor commit had deleted the `WatchlistEntry` class entirely (it existed pre-refactor as scaffolding, but was never part of main's scope) and changed `Film.id` and `CollectionEntry.film_id` from `Integer` to `String(36)` UUIDs. So after the rebase, `models.py` had no `WatchlistEntry` model at all, which silently broke every import in `services/watchlist_service.py`.
+
+**How I resolved it:** I re-added the `WatchlistEntry` class to `models.py`, matching the UUID pattern main now uses for `CollectionEntry`: `film_id` is `db.Column(db.String(36), db.ForeignKey("film.id"), nullable=False)` instead of `db.Integer`. I also updated two leftover references to the old integer-ID assumption: the `film_id (int)` docstring note in `add_to_watchlist()` in `services/watchlist_service.py`, and the `Body: { "film_id": <int> }` docstring in `routes/watchlist/watchlist.py`, both changed to reflect UUID strings.
+
+**How I verified no conflict remains:** Ran `pytest tests/ -v` and all 7 tests pass (4 collection + 3 watchlist). Confirmed the app still boots with `create_app()`. Ran `git log --merges origin/main..HEAD` and got no output, confirming a linear history with no merge commits.
+
+After addressing all six comments, I used `git rebase -i` to clean up my commit history into conventional format, one logical change per commit, with no merge commits:
+
+![git log --oneline showing conventional commits with no merge commits](git-log-screenshot.png)
+
+## PR Description
+<!-- Written at the end — feature overview, design decisions, manual testing steps -->
+
+### What this feature does
+This PR adds a watchlist feature to CineLog so users can save films they want to watch later, separate from their collection of films they've already watched. It introduces a `WatchlistEntry` model and two endpoints: `GET /watchlist/<user_id>` to view a user's watchlist, and `POST /watchlist/<user_id>/add` to add a film to it.
+
+### Design decisions
+- **Default visibility (`public=True`):** Watchlist entries default to public. CineLog is a film tracking app in the same category as apps like Letterboxd, where public activity by default is the norm for lists and logs, not the exception.
+- **Sort order (alphabetical by title):** `get_watchlist()` sorts alphabetically by film title rather than by date added. A watchlist's main job is answering "is this film on my list," a lookup problem, not an activity feed, so alphabetical order serves that better than recency. `date_added` is still returned on every entry, so a client can still sort by recency if needed.
+
+### How to manually test
+1. Start the app: `python app.py`
+2. Create a user and a film in the database (via the existing collection endpoints, or directly through a Python shell using `create_app()` and `db.session`).
+3. Add a film to the watchlist:
+   ```
+   curl -X POST http://127.0.0.1:5000/watchlist/<user_id>/add \
+     -H "Content-Type: application/json" \
+     -d '{"film_id": "<film_uuid>"}'
+   ```
+   Expect a `201` with the new watchlist entry.
+4. Try adding the same film again. Expect a `409` with an `AlreadyInWatchlistError` message.
+5. Try adding a film_id that doesn't exist. Expect a `404` with a `FilmNotFoundError` message.
+6. View the watchlist: `curl http://127.0.0.1:5000/watchlist/<user_id>`. Expect the film(s) sorted alphabetically by title.
+7. Alternatively, run the automated test suite: `pytest tests/test_watchlist.py -v`.
