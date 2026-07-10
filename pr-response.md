@@ -12,8 +12,8 @@
 **How I verified:** Started `tests/test_watchlist.py`, following the same fixture structure as `tests/test_collection.py`. Added `test_add_to_watchlist_creates_entry` for the happy path and `test_add_to_watchlist_duplicate_raises`, which adds the same film twice and asserts the second call raises `AlreadyInWatchlistError` while only one entry ends up in the database. Both pass. Also ran `pytest tests/ -v` to confirm the existing collection tests still pass unaffected.
 
 ## Comment 3 — Missing test
-**What I did:**
-**How I verified:**
+**What I did:** Added `test_add_to_watchlist_nonexistent_film_raises` to `tests/test_watchlist.py`, using `test_add_to_collection_nonexistent_film_raises` in `tests/test_collection.py` as the model.
+**How I verified:** Ran `pytest tests/test_watchlist.py -v` and confirmed the new test passes alongside the other two watchlist tests. Ran the full suite with `pytest tests/ -v` and all 7 tests pass (4 collection + 3 watchlist).
 
 ## Comment 4 — Default visibility
 **My position:**
