@@ -30,9 +30,11 @@
 **Engagement with reviewer's point:** I understand the reasoning that most users want to see what they added recently, and I agree that's true for a collection, where recent activity is the point. But I think that assumption fits an activity feed more than it fits a watchlist. A watchlist's main job isn't to show recent activity, it's to answer "is this thing I want to watch on here, and can I find it," and that's a lookup problem, not a recency problem. I'd also point out that `date_added` is still returned on every entry in the response, so recency isn't lost information, a client that wants to show "recently added" can still do that with the data available. What a client can't easily do is reconstruct alphabetical order on its own without either the backend providing it or resorting the entire payload itself, so I think alphabetical is the more useful default to bake in at the API level.
 
 ## Comment 6 — Rebase
-**What conflicted:**
-**How I resolved it:**
-**How I verified no conflict remains:**
+**What conflicted:** I ran `git fetch origin` then `git rebase origin/main`. The rebase reported success with no conflict markers, but that was misleading. None of my commits on `feature/watchlist` ever touch `models.py`, so git had nothing to diff there and just took main's version of the file wholesale. Main's UUID refactor commit had deleted the `WatchlistEntry` class entirely (it existed pre-refactor as scaffolding, but was never part of main's scope) and changed `Film.id` and `CollectionEntry.film_id` from `Integer` to `String(36)` UUIDs. So after the rebase, `models.py` had no `WatchlistEntry` model at all, which silently broke every import in `services/watchlist_service.py`.
+
+**How I resolved it:** I re-added the `WatchlistEntry` class to `models.py`, matching the UUID pattern main now uses for `CollectionEntry`: `film_id` is `db.Column(db.String(36), db.ForeignKey("film.id"), nullable=False)` instead of `db.Integer`. I also updated two leftover references to the old integer-ID assumption: the `film_id (int)` docstring note in `add_to_watchlist()` in `services/watchlist_service.py`, and the `Body: { "film_id": <int> }` docstring in `routes/watchlist/watchlist.py`, both changed to reflect UUID strings.
+
+**How I verified no conflict remains:** Ran `pytest tests/ -v` and all 7 tests pass (4 collection + 3 watchlist). Confirmed the app still boots with `create_app()`. Ran `git log --merges origin/main..HEAD` and got no output, confirming a linear history with no merge commits.
 
 ## PR Description
 <!-- Written at the end — feature overview, design decisions, manual testing steps -->
