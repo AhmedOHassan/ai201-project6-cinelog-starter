@@ -1,7 +1,17 @@
 # PR Response Doc — CineLog Watchlist Feature
 
 ## AI Usage
-<!-- Fill in at the end — how you used AI tools during this project -->
+I used AI throughout this project in a few specific ways:
+
+- **Codebase orientation:** Before looking at the review comments, I had it read through `models.py`, `services/collection_service.py`, and `tests/test_collection.py` and summarize the naming conventions, the deduplication pattern in `add_to_collection()`, and the fixture structure used in the tests. This gave me the context I needed to actually understand what Comments 1–3 were asking for instead of guessing.
+
+- **Stress-testing Comments 4 and 5:** For both design decisions, I wrote my own position first, then asked what counterargument a careful reviewer would raise. For Comment 4 (default visibility), it pointed out that I was justifying `public=True` partly by assuming features like a friends system or a signup disclosure existed in the codebase, when they don't. I revised my reasoning to instead ground the public default in what's actually true today, rather than leaning on social features that haven't been built. For Comment 5 (sort order), it pointed out that my original argument didn't actually hold for small, actively-used watchlists, where seeing the newest addition first is arguably more useful, and that alphabetical isn't really a robust answer to "can I find it" once a list gets large either way. I narrowed my final argument to drop the list-size framing entirely and argue instead that alphabetical serves a watchlist's core purpose (lookup, "is this on my list") regardless of size, which is a claim the size-based counterargument doesn't touch.
+
+- **Rebase troubleshooting (Comment 6):** After running `git rebase origin/main`, the rebase reported success with no conflict markers, which was confusing since I expected an explicit conflict. I asked it to explain why, and it walked through the mechanics: since none of my commits touched `models.py`, git had nothing to diff there, so it silently took main's version wholesale, which had dropped the `WatchlistEntry` class entirely during the UUID refactor. That explanation is what let me recognize this as a real conflict, just one that wouldn't show up as `<<<<<<<` markers.
+
+- **Commit hygiene check:** After the interactive rebase, I reviewed the final `git log --oneline` output myself against the conventional commits spec described in `CONTRIBUTING.md` before taking the final screenshot.
+
+In all cases, the code changes, the actual wording of the Comment 4 and 5 responses, and the final commit messages are my own, AI was used for orientation, critique, and verification, not to generate the design decisions themselves.
 
 ## Comment 1 — Rename
 **What I did:** Renamed `save_to_watchlist()` to `add_to_watchlist()` in `services/watchlist_service.py` so it matches the `verb_to_noun` convention already used by `add_to_collection()` in `services/collection_service.py`. Updated the docstring's first line to say "Add a film" instead of "Save a film" so it stays consistent with the new name. Updated the one call site in `routes/watchlist/watchlist.py`, both the import and the function call.
@@ -36,5 +46,31 @@
 
 **How I verified no conflict remains:** Ran `pytest tests/ -v` and all 7 tests pass (4 collection + 3 watchlist). Confirmed the app still boots with `create_app()`. Ran `git log --merges origin/main..HEAD` and got no output, confirming a linear history with no merge commits.
 
+After addressing all six comments, I used `git rebase -i` to clean up my commit history into conventional format, one logical change per commit, with no merge commits:
+
+![git log --oneline showing conventional commits with no merge commits](git-log-screenshot.png)
+
 ## PR Description
 <!-- Written at the end — feature overview, design decisions, manual testing steps -->
+
+### What this feature does
+This PR adds a watchlist feature to CineLog so users can save films they want to watch later, separate from their collection of films they've already watched. It introduces a `WatchlistEntry` model and two endpoints: `GET /watchlist/<user_id>` to view a user's watchlist, and `POST /watchlist/<user_id>/add` to add a film to it.
+
+### Design decisions
+- **Default visibility (`public=True`):** Watchlist entries default to public. CineLog is a film tracking app in the same category as apps like Letterboxd, where public activity by default is the norm for lists and logs, not the exception.
+- **Sort order (alphabetical by title):** `get_watchlist()` sorts alphabetically by film title rather than by date added. A watchlist's main job is answering "is this film on my list," a lookup problem, not an activity feed, so alphabetical order serves that better than recency. `date_added` is still returned on every entry, so a client can still sort by recency if needed.
+
+### How to manually test
+1. Start the app: `python app.py`
+2. Create a user and a film in the database (via the existing collection endpoints, or directly through a Python shell using `create_app()` and `db.session`).
+3. Add a film to the watchlist:
+   ```
+   curl -X POST http://127.0.0.1:5000/watchlist/<user_id>/add \
+     -H "Content-Type: application/json" \
+     -d '{"film_id": "<film_uuid>"}'
+   ```
+   Expect a `201` with the new watchlist entry.
+4. Try adding the same film again. Expect a `409` with an `AlreadyInWatchlistError` message.
+5. Try adding a film_id that doesn't exist. Expect a `404` with a `FilmNotFoundError` message.
+6. View the watchlist: `curl http://127.0.0.1:5000/watchlist/<user_id>`. Expect the film(s) sorted alphabetically by title.
+7. Alternatively, run the automated test suite: `pytest tests/test_watchlist.py -v`.
