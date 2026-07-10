@@ -16,9 +16,11 @@
 **How I verified:** Ran `pytest tests/test_watchlist.py -v` and confirmed the new test passes alongside the other two watchlist tests. Ran the full suite with `pytest tests/ -v` and all 7 tests pass (4 collection + 3 watchlist).
 
 ## Comment 4 — Default visibility
-**My position:**
-**Reasoning:**
-**Tradeoff acknowledged:**
+**My position:** I'm keeping `public=True` as the default, and I want to be clear that this is a deliberate choice, not something I inherited without thinking about it.
+
+**Reasoning:** A watchlist is different from a collection. A collection is a record of what someone has already watched, which feels more personal and retrospective. A watchlist is a list of what someone wants to watch, and I think that's naturally more outward facing. CineLog is a film tracking app, and in that genre of app, public activity by default is the norm, not the exception. Letterboxd, the app CineLog is clearly closest to in spirit, defaults diaries, reviews, and lists to public, and that's part of what makes the category work: people log and browse what others are watching as a normal part of using the app. I'm following that same convention here rather than treating CineLog as a private utility where sharing is the exception.
+
+**Tradeoff acknowledged:** The real cost of this default is that a user who doesn't think about privacy at all ends up exposing their watchlist without ever making that choice. That's a real risk, especially for someone who might not want people knowing they're planning to watch something they'd find embarrassing or that doesn't match how they present themselves publicly. I'll admit CineLog doesn't currently have anything in this codebase, like a signup notice or a friends system, that actively tells a user their watchlist is public or lets them do anything social with that visibility yet. So right now this default is really just matching the norm for the category of app CineLog is, not something the product is actively taking advantage of. I still think `public=True` is the right default to build toward that norm from, but I'd treat clearly communicating this default to users, and building the features that make public visibility actually useful, as follow-up work rather than something this PR needs to solve.
 
 ## Comment 5 — Sort order
 **My position:**
